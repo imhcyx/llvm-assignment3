@@ -39,15 +39,15 @@
 using namespace llvm;
 
 // (pointer, offset)
-struct PointerKey : std::pair<Value*, int64_t> {
-    PointerKey(Value *val, int64_t off) : pair(val, off) {}
-    PointerKey(Value *val) : pair(val, 0) {}
+struct PointerTy : std::pair<Value*, int64_t> {
+    PointerTy(Value *val, int64_t off) : pair(val, off) {}
+    PointerTy(Value *val) : pair(val, 0) {}
 };
 
 // key -> {pointees}
 // (callinst, -1) is specially used to store possible callees
 // (function, -1) is specially used to store return values
-typedef std::map<PointerKey, std::set<Function*>> PointerMap;
+typedef std::map<PointerTy, std::set<PointerTy>> PointerMap;
 
 inline raw_ostream &operator<<(raw_ostream &out, const PointerMap &info) {
     for (auto it : info) {
@@ -68,21 +68,22 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerMap &info) {
             else {
                 out << ", ";
             }
-            if (p) {
-                out << p->getName();
+            if (p.first) {
+                out << p.first->getName();
             }
             else {
                 out << "???";
             }
+            out << "[" << p.second << "]";
         }
         out << '\n';
     }
     return out;
 }
 
-void copyUse(PointerMap &dstmap, const PointerKey dst, const PointerMap &srcmap, const PointerKey src) {
-    if (isa<Function>(src.first) && src.second == 0) {
-        dstmap[dst].insert(dyn_cast<Function>(src.first));
+void copyUse(PointerMap &dstmap, const PointerTy dst, const PointerMap &srcmap, const PointerTy src) {
+    if (isa<Function>(src.first) && src.second >= 0) {
+        dstmap[dst].insert(src);
     }
     else if (srcmap.find(src) != srcmap.end()) {
         auto &set = srcmap.at(src);
@@ -90,8 +91,21 @@ void copyUse(PointerMap &dstmap, const PointerKey dst, const PointerMap &srcmap,
     }
 }
 
-void copyUse(PointerMap &map, const PointerKey dst, const PointerKey src) {
+void copyUse(PointerMap &map, const PointerTy dst, const PointerTy src) {
     copyUse(map, dst, map, src);
+}
+
+void rewriteUse(PointerMap &dstmap, const PointerTy dst, const PointerMap &srcmap, const PointerTy src) {
+    if (isa<Function>(src.first) && src.second >= 0) {
+        dstmap[dst].insert(src);
+    }
+    else if (srcmap.find(src) != srcmap.end()) {
+        dstmap[dst] = srcmap.at(src);
+    }
+}
+
+void rewriteUse(PointerMap &map, const PointerTy dst, const PointerTy src) {
+    rewriteUse(map, dst, map, src);
 }
 
 class PointerVisitor : public DataflowVisitor<PointerMap> {
@@ -110,7 +124,6 @@ public:
         if (PHINode *phi = dyn_cast<PHINode>(inst)) {
             if (phi->getType()->isPointerTy()) {
                 for (int i = 0; i < phi->getNumIncomingValues(); i++) {
-                    //errs() << "phi " << i << ": " << phi->getIncomingValue(i)->getName() << '\n';
                     copyUse(map, phi, phi->getIncomingValue(i));
                 }
             }
@@ -118,7 +131,7 @@ public:
         else if (LoadInst *load = dyn_cast<LoadInst>(inst)) {
             if (load->getType()->isPointerTy()) {
                 Value *ptr = load->getPointerOperand();
-                for (Value *v : map[ptr]) {
+                for (PointerTy v : map[ptr]) {
                     copyUse(map, load, v);
                 }
             }
@@ -126,35 +139,46 @@ public:
         else if (StoreInst *store = dyn_cast<StoreInst>(inst)) {
             if (store->getValueOperand()->getType()->isPointerTy()) {
                 Value *ptr = store->getPointerOperand();
-                for (Value *v : map[ptr]) {
-                    map[v] = map[store->getValueOperand()];
+                for (PointerTy v : map[ptr]) {
+                    rewriteUse(map, v, store->getValueOperand());
                 }
             }
         }
         else if (GetElementPtrInst *get = dyn_cast<GetElementPtrInst>(inst)) {
-            if (get->getPointerOperandType()->getPointerElementType()->isPointerTy()) {
+            if (get->getPointerOperandType()->isPointerTy()) {
                 Value *ptr = get->getPointerOperand();
                 Value *idx = get->getOperand(1);
                 int64_t offset = dyn_cast<ConstantInt>(idx)->getSExtValue();
                 //errs() << "offset: " << offset << '\n';
-                copyUse(map, get, PointerKey(ptr, offset));
+                map[get].insert(PointerTy(ptr, offset));
             }
+        }
+        else if (CastInst *cast = dyn_cast<CastInst>(inst)) {
+            // TODO
+        }
+        else if (AllocaInst *alloca = dyn_cast<AllocaInst>(inst)) {
+            // TODO
         }
         else if (CallInst *call = dyn_cast<CallInst>(inst)) {
             Value *callee = call->getCalledOperand();
-            std::set<Function*> singleCallee = {dyn_cast<Function>(callee)}, *callees;
+            std::set<PointerTy> singleCallee = {dyn_cast<Function>(callee)}, *callees;
             if (isa<Function>(callee)) {
                 callees = &singleCallee;
             }
             else {
                 callees = &map[callee];
             }
-            for (Function *f : *callees) {
+            for (PointerTy p : *callees) {
+                Function *f = dyn_cast<Function>(p.first);
+                if (!f) continue;
                 DataflowResult<PointerMap>::Type subres;
                 PointerMap initval;
-                //errs() << "callee: " << f->getName() << '\n';
+                // Ignore LLVM intrinsics
+                if (f->getName().startswith("llvm.")) continue;
                 // Store callee in a special way
-                map[PointerKey(call, -1)].insert(f);
+                map[PointerTy(call, -1)].insert(f);
+                // Ignore declaration
+                if (f->isDeclaration()) continue;
                 // Copy arguments
                 for (unsigned int i = 0; i < call->getNumArgOperands(); i++) {
                     Value *arg = call->getArgOperand(i);
@@ -167,7 +191,7 @@ public:
                 // Copy return value
                 if (call->getType()->isPointerTy()) {
                     for (BasicBlock &BB : *f) {
-                        copyUse(map, call, subres[&BB].second, PointerKey(f, -1));
+                        copyUse(map, call, subres[&BB].second, PointerTy(f, -1));
                     }
                 }
                 // Merge callee context values
@@ -182,9 +206,9 @@ public:
             }
         }
         else if (ReturnInst *ret = dyn_cast<ReturnInst>(inst)) {
-            if (ret->getReturnValue()->getType()->isPointerTy()) {
+            if (ret->getReturnValue() && ret->getReturnValue()->getType()->isPointerTy()) {
                 // Use (function, -1) as key to store return value
-                copyUse(map, PointerKey(ret->getFunction(), -1), ret->getReturnValue());
+                copyUse(map, PointerTy(ret->getFunction(), -1), ret->getReturnValue());
             }
         }
     }
