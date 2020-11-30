@@ -112,7 +112,7 @@ void compForwardDataflow(Function *fn,
         if (bbentryval == (*result)[bb].second) continue;
         (*result)[bb].second = bbentryval;
 
-        for (pred_iterator si = succ_begin(bb), se = succ_end(bb); si != se; si++) {
+        for (auto si = succ_begin(bb), se = succ_end(bb); si != se; si++) {
             worklist.insert(*si);
         }
     }
@@ -160,7 +160,7 @@ void compBackwardDataflow(Function *fn,
         if (bbexitval == (*result)[bb].first) continue;
         (*result)[bb].first = bbexitval;
 
-        for (pred_iterator pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
+        for (auto pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
             worklist.insert(*pi);
         }
     }
@@ -173,9 +173,9 @@ void printDataflowResult(raw_ostream &out,
             it != dfresult.end(); ++it ) {
         if (it->first == NULL) out << "*";
         else it->first->dump();
-        out << "\n\tin : "
+        out << "\n * in : \n"
             << it->second.first 
-            << "\n\tout :  "
+            << "\n * out :  \n"
             << it->second.second
             << "\n";
     }
