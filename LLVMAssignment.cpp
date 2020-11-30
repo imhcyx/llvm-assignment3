@@ -38,15 +38,20 @@
 
 using namespace llvm;
 
+enum {
+    PtrTyEqual      = -1,
+    PtrTyReturn     = -2,
+    PtrTyCall       = -3
+};
+
 // (pointer, offset)
 struct PointerTy : std::pair<Value*, int64_t> {
     PointerTy(Value *val, int64_t off) : pair(val, off) {}
-    PointerTy(Value *val) : pair(val, 0) {}
+    PointerTy(Value *val) : pair(val, PtrTyEqual) {}
 };
 
 // key -> {pointees}
-// (callinst, -1) is specially used to store possible callees
-// (function, -1) is specially used to store return values
+// offset < 0 is used for special purposes
 typedef std::map<PointerTy, std::set<PointerTy>> PointerMap;
 
 inline raw_ostream &operator<<(raw_ostream &out, const PointerMap &info) {
@@ -59,7 +64,12 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerMap &info) {
         else {
             out << "???";
         }
-        out << "[" << offset << "]: ";
+        switch (offset) {
+            case PtrTyEqual:    out << " = ";                   break;
+            case PtrTyReturn:   out << " returns: ";            break;
+            case PtrTyCall:     out << " => ";                  break;
+            default:            out << "[" << offset << "]: ";  break;
+        }
         bool first = true;
         for (auto p : it.second) {
             if (first) {
@@ -74,38 +84,39 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerMap &info) {
             else {
                 out << "???";
             }
-            out << "[" << p.second << "]";
+            if (p.second > 0) {
+                out << "[" << p.second << "]";
+            }
         }
         out << '\n';
     }
     return out;
 }
 
-void copyUse(PointerMap &dstmap, const PointerTy dst, const PointerMap &srcmap, const PointerTy src) {
-    if (isa<Function>(src.first) && src.second >= 0) {
-        dstmap[dst].insert(src);
+std::set<PointerTy> getValues(const PointerMap &map, const PointerTy src) {
+    if (map.find(src) == map.end()) {
+        return {PointerTy(src.first, 0)};
     }
-    else if (srcmap.find(src) != srcmap.end()) {
-        auto &set = srcmap.at(src);
-        dstmap[dst].insert(set.begin(), set.end());
-    }
-}
-
-void copyUse(PointerMap &map, const PointerTy dst, const PointerTy src) {
-    copyUse(map, dst, map, src);
-}
-
-void rewriteUse(PointerMap &dstmap, const PointerTy dst, const PointerMap &srcmap, const PointerTy src) {
-    if (isa<Function>(src.first) && src.second >= 0) {
-        dstmap[dst].insert(src);
-    }
-    else if (srcmap.find(src) != srcmap.end()) {
-        dstmap[dst] = srcmap.at(src);
+    else {
+        return map.at(src);
     }
 }
 
-void rewriteUse(PointerMap &map, const PointerTy dst, const PointerTy src) {
-    rewriteUse(map, dst, map, src);
+void copyValue(PointerMap &dstmap, const PointerTy dst, const PointerMap &srcmap, const PointerTy src) {
+    auto set = getValues(srcmap, src);
+    dstmap[dst].insert(set.begin(), set.end());
+}
+
+void copyValue(PointerMap &map, const PointerTy dst, const PointerTy src) {
+    copyValue(map, dst, map, src);
+}
+
+void rewriteValue(PointerMap &dstmap, const PointerTy dst, const PointerMap &srcmap, const PointerTy src) {
+    dstmap[dst] = getValues(srcmap, src);
+}
+
+void rewriteValue(PointerMap &map, const PointerTy dst, const PointerTy src) {
+    rewriteValue(map, dst, map, src);
 }
 
 class PointerVisitor : public DataflowVisitor<PointerMap> {
@@ -113,7 +124,7 @@ public:
     PointerVisitor() {}
     void merge(PointerMap *dest, const PointerMap &src) override {
         for (auto it : src) {
-            copyUse(*dest, it.first, src, it.first);
+            copyValue(*dest, it.first, src, it.first);
         }
     }
 
@@ -124,40 +135,42 @@ public:
         if (PHINode *phi = dyn_cast<PHINode>(inst)) {
             if (phi->getType()->isPointerTy()) {
                 for (int i = 0; i < phi->getNumIncomingValues(); i++) {
-                    copyUse(map, phi, phi->getIncomingValue(i));
+                    copyValue(map, phi, phi->getIncomingValue(i));
                 }
             }
         }
         else if (LoadInst *load = dyn_cast<LoadInst>(inst)) {
             if (load->getType()->isPointerTy()) {
                 Value *ptr = load->getPointerOperand();
-                for (PointerTy v : map[ptr]) {
-                    copyUse(map, load, v);
+                for (PointerTy v : getValues(map, ptr)) {
+                    copyValue(map, load, v);
                 }
             }
         }
         else if (StoreInst *store = dyn_cast<StoreInst>(inst)) {
             if (store->getValueOperand()->getType()->isPointerTy()) {
                 Value *ptr = store->getPointerOperand();
-                for (PointerTy v : map[ptr]) {
-                    rewriteUse(map, v, store->getValueOperand());
+                for (PointerTy v : getValues(map, ptr)) {
+                    rewriteValue(map, v, store->getValueOperand());
                 }
             }
         }
         else if (GetElementPtrInst *get = dyn_cast<GetElementPtrInst>(inst)) {
             if (get->getPointerOperandType()->isPointerTy()) {
                 Value *ptr = get->getPointerOperand();
-                Value *idx = get->getOperand(1);
+                Value *idx = get->getOperand(get->getNumOperands() - 1);
                 int64_t offset = dyn_cast<ConstantInt>(idx)->getSExtValue();
                 //errs() << "offset: " << offset << '\n';
-                map[get].insert(PointerTy(ptr, offset));
+                for (PointerTy v : getValues(map, ptr)) {
+                    map[get].insert(PointerTy(v.first, offset));
+                }
             }
         }
         else if (CastInst *cast = dyn_cast<CastInst>(inst)) {
-            // TODO
-        }
-        else if (AllocaInst *alloca = dyn_cast<AllocaInst>(inst)) {
-            // TODO
+            if (cast->getType()->isPointerTy()) {
+                Value *ptr = cast->getOperand(0);
+                copyValue(map, cast, ptr);
+            }
         }
         else if (CallInst *call = dyn_cast<CallInst>(inst)) {
             Value *callee = call->getCalledOperand();
@@ -171,44 +184,46 @@ public:
             for (PointerTy p : *callees) {
                 Function *f = dyn_cast<Function>(p.first);
                 if (!f) continue;
-                DataflowResult<PointerMap>::Type subres;
-                PointerMap initval;
                 // Ignore LLVM intrinsics
                 if (f->getName().startswith("llvm.")) continue;
                 // Store callee in a special way
-                map[PointerTy(call, -1)].insert(f);
+                map[PointerTy(call, PtrTyCall)].insert(f);
                 // Ignore declaration
                 if (f->isDeclaration()) continue;
+                DataflowResult<PointerMap>::Type subres;
+                PointerMap initval = map; // copy context
                 // Copy arguments
                 for (unsigned int i = 0; i < call->getNumArgOperands(); i++) {
                     Value *arg = call->getArgOperand(i);
                     if (arg->getType()->isPointerTy()) {
-                        copyUse(initval, f->getArg(i), map, arg);
+                        copyValue(initval, f->getArg(i), map, arg);
                     }
                 }
                 // Compute dataflow for called function
                 compForwardDataflow<PointerMap>(f, this, &subres, initval);
-                // Copy return value
-                if (call->getType()->isPointerTy()) {
-                    for (BasicBlock &BB : *f) {
-                        copyUse(map, call, subres[&BB].second, PointerTy(f, -1));
-                    }
-                }
                 // Merge callee context values
+                PointerMap resmap;
                 for (BasicBlock &BB : *f) {
                     for (auto it : subres[&BB].second) {
-                        // callees
-                        if (isa<CallInst>(it.first.first) && it.first.second == -1) {
-                            map[it.first].insert(it.second.begin(), it.second.end());
-                        }
+                        copyValue(resmap, it.first, subres[&BB].second, it.first);
                     }
                 }
+                //errs() << "before (" << f->getName() << "):\n" << map << '\n';
+                //errs() << "resmap (" << f->getName() << "):\n" << resmap << '\n';
+                if (call->getType()->isPointerTy()) {
+                    copyValue(map, call, resmap, PointerTy(f, PtrTyReturn));
+                }
+                for (auto it : resmap) {
+                    if (it.first.second == PtrTyCall || it.first.second >= 0) {
+                        rewriteValue(map, it.first, resmap, it.first);
+                    }
+                }
+                //errs() << "after (" << f->getName() << "):\n" << map << '\n';
             }
         }
         else if (ReturnInst *ret = dyn_cast<ReturnInst>(inst)) {
             if (ret->getReturnValue() && ret->getReturnValue()->getType()->isPointerTy()) {
-                // Use (function, -1) as key to store return value
-                copyUse(map, PointerTy(ret->getFunction(), -1), ret->getReturnValue());
+                copyValue(map, PointerTy(ret->getFunction(), PtrTyReturn), ret->getReturnValue());
             }
         }
     }
@@ -275,6 +290,22 @@ struct FuncPtrPass : public ModulePass {
         for (Function &F : M) {
             processFunction(F);
         }
+
+        for (auto it : mFuncMap) {
+            outs() << it.first << " : ";
+            bool first = true;
+            for (Function *f : it.second) {
+                if (first) {
+                    first = false;
+                }
+                else {
+                    outs() << ", ";
+                }
+                outs() << f->getName();
+            }
+            outs() << '\n';
+        }
+
         return false;
     }
 
@@ -289,8 +320,27 @@ struct FuncPtrPass : public ModulePass {
         DataflowResult<PointerMap>::Type result;
         PointerMap initval;
         compForwardDataflow<PointerMap>(&F, &visitor, &result, initval);
-        printDataflowResult<PointerMap>(outs(), result);
+        //printDataflowResult<PointerMap>(outs(), result);
+
+        PointerMap resmap;
+        for (BasicBlock &BB : F) {
+            for (auto it : result[&BB].second) {
+                copyValue(resmap, it.first, result[&BB].second, it.first);
+            }
+        }
+
+        for (auto it : resmap) {
+            if (it.first.second == PtrTyCall) {
+                CallInst *call = dyn_cast<CallInst>(it.first.first);
+                for (PointerTy v : it.second) {
+                    mFuncMap[call->getDebugLoc().getLine()].insert(dyn_cast<Function>(v.first));
+                }
+            }
+        }
     }
+
+private:
+    std::map<unsigned int, std::set<Function*>> mFuncMap;
 };
 
 
