@@ -4,64 +4,64 @@ target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16
 target triple = "x86_64-pc-linux-gnu"
 
 ; Function Attrs: noinline nounwind uwtable
-define dso_local i32 @plus(i32 %0, i32 %1) #0 !dbg !13 {
-  call void @llvm.dbg.value(metadata i32 %0, metadata !14, metadata !DIExpression()), !dbg !15
-  call void @llvm.dbg.value(metadata i32 %1, metadata !16, metadata !DIExpression()), !dbg !15
-  %3 = add nsw i32 %0, %1, !dbg !17
-  ret i32 %3, !dbg !18
+define dso_local i32 @plus(i32 %name0, i32 %name1) #0 !dbg !13 {
+  call void @llvm.dbg.value(metadata i32 %name0, metadata !14, metadata !DIExpression()), !dbg !15
+  call void @llvm.dbg.value(metadata i32 %name1, metadata !16, metadata !DIExpression()), !dbg !15
+  %name2 = add nsw i32 %name0, %name1, !dbg !17
+  ret i32 %name2, !dbg !18
 }
 
 ; Function Attrs: nounwind readnone speculatable willreturn
 declare void @llvm.dbg.declare(metadata, metadata, metadata) #1
 
 ; Function Attrs: noinline nounwind uwtable
-define dso_local i32 @minus(i32 %0, i32 %1) #0 !dbg !19 {
-  call void @llvm.dbg.value(metadata i32 %0, metadata !20, metadata !DIExpression()), !dbg !21
-  call void @llvm.dbg.value(metadata i32 %1, metadata !22, metadata !DIExpression()), !dbg !21
-  %3 = sub nsw i32 %0, %1, !dbg !23
-  ret i32 %3, !dbg !24
+define dso_local i32 @minus(i32 %name6, i32 %name7) #0 !dbg !19 {
+  call void @llvm.dbg.value(metadata i32 %name6, metadata !20, metadata !DIExpression()), !dbg !21
+  call void @llvm.dbg.value(metadata i32 %name7, metadata !22, metadata !DIExpression()), !dbg !21
+  %name8 = sub nsw i32 %name6, %name7, !dbg !23
+  ret i32 %name8, !dbg !24
 }
 
 ; Function Attrs: noinline nounwind uwtable
-define dso_local i32 @clever(i32 %0, i32 %1, i32 (i32, i32)* %2) #0 !dbg !25 {
-  call void @llvm.dbg.value(metadata i32 %0, metadata !28, metadata !DIExpression()), !dbg !29
-  call void @llvm.dbg.value(metadata i32 %1, metadata !30, metadata !DIExpression()), !dbg !29
-  call void @llvm.dbg.value(metadata i32 (i32, i32)* %2, metadata !31, metadata !DIExpression()), !dbg !29
-  %4 = call i32 %2(i32 %0, i32 %1), !dbg !32
-  ret i32 %4, !dbg !33
+define dso_local i32 @clever(i32 %name9, i32 %name10, i32 (i32, i32)* %name11) #0 !dbg !25 {
+  call void @llvm.dbg.value(metadata i32 %name9, metadata !28, metadata !DIExpression()), !dbg !29
+  call void @llvm.dbg.value(metadata i32 %name10, metadata !30, metadata !DIExpression()), !dbg !29
+  call void @llvm.dbg.value(metadata i32 (i32, i32)* %name11, metadata !31, metadata !DIExpression()), !dbg !29
+  %name12 = call i32 %name11(i32 %name9, i32 %name10), !dbg !32
+  ret i32 %name12, !dbg !33
 }
 
 ; Function Attrs: noinline nounwind uwtable
-define dso_local i32 @moo(i8 signext %0, i32 %1, i32 %2) #0 !dbg !34 {
-  call void @llvm.dbg.value(metadata i8 %0, metadata !38, metadata !DIExpression()), !dbg !39
-  call void @llvm.dbg.value(metadata i32 %1, metadata !40, metadata !DIExpression()), !dbg !39
-  call void @llvm.dbg.value(metadata i32 %2, metadata !41, metadata !DIExpression()), !dbg !39
+define dso_local i32 @moo(i8 signext %name13, i32 %name14, i32 %name15) #0 !dbg !34 {
+  call void @llvm.dbg.value(metadata i8 %name13, metadata !38, metadata !DIExpression()), !dbg !39
+  call void @llvm.dbg.value(metadata i32 %name14, metadata !40, metadata !DIExpression()), !dbg !39
+  call void @llvm.dbg.value(metadata i32 %name15, metadata !41, metadata !DIExpression()), !dbg !39
   call void @llvm.dbg.value(metadata i32 (i32, i32)* @plus, metadata !42, metadata !DIExpression()), !dbg !39
   call void @llvm.dbg.value(metadata i32 (i32, i32)* @minus, metadata !43, metadata !DIExpression()), !dbg !39
-  %4 = call noalias i8* @malloc(i64 8) #3, !dbg !44
-  %5 = bitcast i8* %4 to i32 (i32, i32)**, !dbg !45
-  call void @llvm.dbg.value(metadata i32 (i32, i32)** %5, metadata !46, metadata !DIExpression()), !dbg !39
-  %6 = sext i8 %0 to i32, !dbg !47
-  %7 = icmp eq i32 %6, 43, !dbg !49
-  br i1 %7, label %8, label %9, !dbg !50
+  %name16 = call noalias i8* @malloc(i64 8) #3, !dbg !44
+  %name17 = bitcast i8* %name16 to i32 (i32, i32)**, !dbg !45
+  call void @llvm.dbg.value(metadata i32 (i32, i32)** %name17, metadata !46, metadata !DIExpression()), !dbg !39
+  %name18 = sext i8 %name13 to i32, !dbg !47
+  %name19 = icmp eq i32 %name18, 43, !dbg !49
+  br i1 %name19, label %1, label %2, !dbg !50
 
-8:                                                ; preds = %3
-  store i32 (i32, i32)* @plus, i32 (i32, i32)** %5, align 8, !dbg !51
-  br label %9, !dbg !53
+1:                                                ; preds = %0
+  store i32 (i32, i32)* @plus, i32 (i32, i32)** %name17, align 8, !dbg !51
+  br label %2, !dbg !53
 
-9:                                                ; preds = %8, %3
-  %10 = sext i8 %0 to i32, !dbg !54
-  %11 = icmp eq i32 %10, 45, !dbg !56
-  br i1 %11, label %12, label %13, !dbg !57
+2:                                                ; preds = %1, %0
+  %name20 = sext i8 %name13 to i32, !dbg !54
+  %name21 = icmp eq i32 %name20, 45, !dbg !56
+  br i1 %name21, label %3, label %4, !dbg !57
 
-12:                                               ; preds = %9
-  store i32 (i32, i32)* @minus, i32 (i32, i32)** %5, align 8, !dbg !58
-  br label %13, !dbg !60
+3:                                                ; preds = %2
+  store i32 (i32, i32)* @minus, i32 (i32, i32)** %name17, align 8, !dbg !58
+  br label %4, !dbg !60
 
-13:                                               ; preds = %12, %9
-  %14 = load i32 (i32, i32)*, i32 (i32, i32)** %5, align 8, !dbg !61
-  %15 = call i32 @clever(i32 %1, i32 %2, i32 (i32, i32)* %14), !dbg !62
-  call void @llvm.dbg.value(metadata i32 %15, metadata !63, metadata !DIExpression()), !dbg !39
+4:                                                ; preds = %3, %2
+  %name22 = load i32 (i32, i32)*, i32 (i32, i32)** %name17, align 8, !dbg !61
+  %name23 = call i32 @clever(i32 %name14, i32 %name15, i32 (i32, i32)* %name22), !dbg !62
+  call void @llvm.dbg.value(metadata i32 %name23, metadata !63, metadata !DIExpression()), !dbg !39
   ret i32 0, !dbg !65
 }
 
